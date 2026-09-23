@@ -181,9 +181,15 @@ def show_key():
 def new_key():
     token, _ = get_token()
     cfg = get_config(token)
-    cfg["apiKeys"] = [k for k in cfg.get("apiKeys", []) if k.get("ident") != KEY_IDENT]
-    cfg["apiKeys"].append({"disabled": False, "ident": KEY_IDENT,
-                           "key": str(uuid.uuid4()), "systems": "*"})
+    # Change the key in place: Rdio 6.6.3 won't delete a key row while the
+    # list contains a new (id-less) entry, so remove-and-add leaves the old key live.
+    keys = [k for k in cfg.get("apiKeys", []) if k.get("ident") == KEY_IDENT]
+    if not keys:
+        sys.exit("No upload key yet. Run: sudo /opt/wakeradio/rdio-admin.py bootstrap")
+    fresh = str(uuid.uuid4())
+    for k in keys:
+        k["key"] = fresh
+        k["disabled"] = False
     put_config(token, cfg)
     key = upload_key(get_config(token))
     set_env("RDIO_UPLOAD_KEY", key)
