@@ -55,13 +55,19 @@ address.
    - App name: `Wake Radio`. User support email: yours.
    - Audience: **External**.
    - Contact email: yours. Agree and **Create**.
-4. **Audience** page → **Publish app** → confirm. The status should read **In production**.
+4. **Branding** page (left sidebar). Google won't publish without these, even for name-and-email sign-in:
+   - Application home page: `https://wakeradio.joezambon.com`
+   - Application privacy policy link: `https://wakeradio.joezambon.com/privacy` (a short public page the server provides)
+   - Authorized domains → **Add domain** → `joezambon.com`
+   - Leave the logo empty (a logo triggers Google's review) and terms of service blank. **Save**.
+   The links don't have to work yet; Google only checks them if the app goes through verification, which it won't.
+5. **Audience** page → **Publish app** → confirm. The status should read **In production**.
    Sign-in only asks for name and email, which Google doesn't review, so there is no verification step. Who actually gets in is decided by your allowlist on the server, not by Google.
-5. **Clients** → **Create client**:
+6. **Clients** → **Create client**:
    - Application type: **Web application**. Name: `wakeradio`.
    - **Authorized redirect URIs** → Add URI: `https://wakeradio.joezambon.com/oauth2/callback`
    - **Create**.
-6. Copy the **Client ID** (ends in `.apps.googleusercontent.com`) and the **Client secret** somewhere temporary. You'll paste them in step 4, then you can delete your copy.
+7. Copy the **Client ID** (ends in `.apps.googleusercontent.com`) and the **Client secret** somewhere temporary. You'll paste them in step 4, then you can delete your copy.
 
 ### 2. Lightsail instance (about 10 minutes)
 
@@ -187,7 +193,7 @@ with.
 ## Security model
 
 - Every page, the live feed and the call search require a signed-in Google account on the allowlist. That check happens in oauth2-proxy before anything reaches Rdio Scanner.
-- The only unauthenticated path is `/api/call-upload`, which Rdio accepts only with the upload key. Uploads with a wrong key are refused.
+- The only unauthenticated paths are `/api/call-upload`, which Rdio accepts only with the upload key (uploads with a wrong key are refused), and `/privacy`, a static page Caddy serves itself.
 - `/admin` requires your Google account **and** the Rdio admin password.
 - Rdio Scanner is only reachable through Caddy. Its own port is bound to the server's loopback address.
 - Secrets live in `/opt/wakeradio/.env` (root-only), never in this repo.
@@ -212,8 +218,8 @@ plus their license key.
 | Symptom | Likely cause / fix |
 |---|---|
 | Browser: certificate error or "can't connect" | DNS not pointing at the static IP yet (step 3), or port 443 missing from the Lightsail firewall (step 2.7). Then `sudo docker compose -f /opt/wakeradio/docker-compose.yml logs caddy`. |
-| Google: `Error 400: redirect_uri_mismatch` | The redirect URI in step 1.5 must be exactly `https://wakeradio.joezambon.com/oauth2/callback`. |
-| Google: "Access blocked: app is in testing" | Step 1.4: the app must be **In production**. |
+| Google: `Error 400: redirect_uri_mismatch` | The redirect URI in step 1.6 must be exactly `https://wakeradio.joezambon.com/oauth2/callback`. |
+| Google: "Access blocked: app is in testing" | Step 1.5: the app must be **In production**. |
 | "403 Forbidden" after signing in | That Google account isn't on the list. `sudo wakeradio-users list` / `add`. |
 | SDRTrunk stream shows errors, nothing arrives | Check Host has `https://` and no trailing path, the API key matches `show-key`, and System ID is `1`. SDRTrunk's log (`SDRTrunk\logs\sdrtrunk_app.log`) shows Rdio's exact reply. |
 | Stream connected but Streamed count stays 0 | Aliases aren't assigned to the stream. Re-run the PowerShell script with SDRTrunk closed. |
