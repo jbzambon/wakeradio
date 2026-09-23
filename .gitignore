@@ -1,0 +1,7 @@
+# Secrets and runtime data live only on the server
+.env
+server/.env
+server/auth/
+server/data/
+*.bak-*
+__pycache__/

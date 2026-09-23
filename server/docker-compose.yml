@@ -1,0 +1,70 @@
+# Wake Radio: Caddy (HTTPS) -> oauth2-proxy (Google sign-in) -> Rdio Scanner.
+# Values come from .env next to this file (written by setup.sh).
+
+name: wakeradio
+
+networks:
+  web:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${DOMAIN}
+      DOMAIN: ${DOMAIN}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ACME_EMAIL: ${ADMIN_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data
+      - ./data/caddy-config:/config
+    networks: [web]
+    depends_on: [oauth2-proxy, rdio-scanner]
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+    restart: unless-stopped
+    environment:
+      OAUTH2_PROXY_PROVIDER: google
+      OAUTH2_PROXY_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${COOKIE_SECRET}
+      OAUTH2_PROXY_COOKIE_NAME: _wakeradio
+      OAUTH2_PROXY_COOKIE_EXPIRE: 720h          # stay signed in for 30 days
+      OAUTH2_PROXY_REDIRECT_URL: https://${DOMAIN}/oauth2/callback
+      OAUTH2_PROXY_WHITELIST_DOMAINS: ${DOMAIN}
+      OAUTH2_PROXY_AUTHENTICATED_EMAILS_FILE: /etc/oauth2-proxy/allowed-emails.txt
+      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_TRUSTED_PROXY_IPS: 172.28.0.0/24
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_UPSTREAMS: static://202
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_APPROVAL_PROMPT: auto
+    volumes:
+      # Whole folder, so edits to the list are picked up without a restart.
+      - ./auth:/etc/oauth2-proxy:ro
+    networks: [web]
+
+  rdio-scanner:
+    # Rdio Scanner v6.6.3 (Nov 2022), the last release before the 2026
+    # WebSocket licensing change. Pinned by digest so it can never drift.
+    image: chuot/rdio-scanner@sha256:aa3bd0b5137580e813836f7e0705af7d66412a28bc73f912c95eacbe70bcd4ef
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: America/New_York
+    ports:
+      # Loopback only, for rdio-admin.py on this machine. Never exposed publicly.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data/rdio:/app/data
+    networks: [web]

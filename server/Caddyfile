@@ -1,0 +1,65 @@
+# Wake Radio front door.
+#
+# Caddy gets and renews the HTTPS certificate for {$DOMAIN} on its own.
+# Every request must pass Google sign-in (oauth2-proxy) except the two
+# upload endpoints, which Rdio Scanner protects with its own API key so
+# SDRTrunk can post calls without a browser login.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS} {
+	# Calls from SDRTrunk (and trunk-recorder, if ever used). API key checked by Rdio.
+	@upload path /api/call-upload /api/trunk-recorder-call-upload
+	handle @upload {
+		request_body {
+			max_size 25MB
+		}
+		reverse_proxy rdio-scanner:3000
+	}
+
+	# Google sign-in flow pages.
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Uri {uri}
+		}
+	}
+
+	# Everything else: signed-in, allowlisted Google accounts only.
+	handle {
+		route {
+			forward_auth oauth2-proxy:4180 {
+				uri /oauth2/auth
+				header_up X-Real-IP {remote_host}
+				copy_headers X-Auth-Request-Email
+				@signin status 401
+				handle_response @signin {
+					redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+				}
+			}
+
+			# The Rdio admin pages are further limited to the owner's Google account.
+			@notadmin {
+				path /admin /admin/* /api/admin/*
+				not header X-Auth-Request-Email {$ADMIN_EMAIL}
+			}
+			respond @notadmin "Admin only" 403
+
+			reverse_proxy rdio-scanner:3000
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
