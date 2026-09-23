@@ -19,6 +19,27 @@
 		reverse_proxy rdio-scanner:3000
 	}
 
+	# Public privacy page (Google requires a privacy policy link to publish the sign-in app).
+	handle /privacy {
+		header Content-Type "text/html; charset=utf-8"
+		respond <<HTML
+			<!doctype html>
+			<html lang="en"><head><meta charset="utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>Wake Radio privacy</title>
+			<style>body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;color:#222}</style>
+			</head><body>
+			<h1>Wake Radio privacy</h1>
+			<p>Wake Radio is a private, invitation-only site run by Joe Zambon for a small group of listeners.</p>
+			<p><b>What we receive.</b> When you sign in with Google, the site receives your name and email address. Nothing else from your Google account is requested or accessed.</p>
+			<p><b>How it is used.</b> Your email address is checked against the list of invited listeners. The site keeps a sign-in cookie in your browser so you stay signed in, and the server logs sign-ins (email address, time, IP address) for security. Logs are kept for a limited time and are not shared.</p>
+			<p><b>What we don't do.</b> No advertising, no analytics, no selling or sharing of data with anyone.</p>
+			<p><b>Removal.</b> Ask to be removed from the listener list at any time and your access ends immediately.</p>
+			<p>Contact: {$ADMIN_EMAIL}</p>
+			</body></html>
+			HTML 200
+	}
+
 	# Google sign-in flow pages.
 	handle /oauth2/* {
 		reverse_proxy oauth2-proxy:4180 {

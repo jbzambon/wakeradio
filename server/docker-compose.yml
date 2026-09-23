@@ -3,6 +3,13 @@
 
 name: wakeradio
 
+# Cap container logs (sign-in logs hold emails/IPs; keep them bounded).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 networks:
   web:
     ipam:
@@ -13,6 +20,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
+    logging: *logging
     ports:
       - "80:80"
       - "443:443"
@@ -32,6 +40,7 @@ services:
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
     restart: unless-stopped
+    logging: *logging
     environment:
       OAUTH2_PROXY_PROVIDER: google
       OAUTH2_PROXY_CLIENT_ID: ${GOOGLE_CLIENT_ID}
@@ -59,6 +68,7 @@ services:
     # WebSocket licensing change. Pinned by digest so it can never drift.
     image: chuot/rdio-scanner@sha256:aa3bd0b5137580e813836f7e0705af7d66412a28bc73f912c95eacbe70bcd4ef
     restart: unless-stopped
+    logging: *logging
     user: "1000:1000"
     environment:
       TZ: America/New_York
