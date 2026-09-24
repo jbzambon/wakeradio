@@ -251,7 +251,7 @@ plus their license key.
 | Page loads but no sound | Click the page once, press **LIVE FEED**, and check **SELECT TG** has talkgroups on. |
 | Audio cuts out several times a second | You're on an SDRTrunk nightly; use 0.6.1 (see step 5). |
 | `/users` says "Admin only" | You're signed in with a different Google account than the admin one in `.env`. |
-| `/users` shows the scanner instead | Use `/users.html`. The scanner's offline cache (service worker) answers extension-less addresses itself. |
+| `/users` shows the scanner instead | The browser still has Rdio's offline cache (service worker). The server now retires it on the next visit to the scanner page; reload the scanner once, then try again. Incognito always works. |
 
 ## Changing the server files
 
