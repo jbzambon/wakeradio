@@ -94,14 +94,16 @@ docker compose pull -q
 docker compose up -d --remove-orphans
 
 # `up -d` leaves running containers alone when only a mounted file changed,
-# and a single-file mount keeps showing the old copy. Restart the container
-# whose file changed since the last run so it picks up the new one.
+# and a single-file mount keeps showing the old copy (even across a restart)
+# once the installer replaces the file. Recreate the container whose file
+# changed since the last run so it mounts the new one.
 for pair in caddy:Caddyfile users-admin:users-admin/app.py; do
 	svc=${pair%%:*}; file=${pair#*:}
 	stamp="data/.applied-$svc.sha256"
 	sum=$(sha256sum "$file" | cut -d' ' -f1)
 	if [[ ! -f $stamp || $(cat "$stamp") != "$sum" ]]; then
-		docker compose restart "$svc" >/dev/null && echo "Applied new $file"
+		docker compose up -d --no-deps --force-recreate "$svc" >/dev/null 2>&1 &&
+			echo "Applied new $file"
 		echo "$sum" >"$stamp"
 	fi
 done
