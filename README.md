@@ -13,7 +13,7 @@ accounts on the allowlist get in.
  ┌─────────── Lightsail (Ubuntu 24.04, Docker) ────────────┐
  │  Caddy :443  (Let's Encrypt HTTPS)                        │
  │    ├─ /api/call-upload ─────────────► Rdio Scanner 6.6.3  │
- │    ├─ /users (admin only) ─► listener page (allowlist)     │
+ │    ├─ /users.html (admin) ─► listener page (allowlist)     │
  │    └─ everything else ─► oauth2-proxy ─► Rdio Scanner     │
  │                          (Google sign-in + allowlist)     │
  └───────────────────────────────────────────────────────────┘
@@ -160,7 +160,7 @@ streaming section, check `wakeradio` → Save.
 
 ### 6. Add listeners
 
-Open **https://wakeradio.joezambon.com/users** (only your Google account can).
+Open **https://wakeradio.joezambon.com/users.html** (only your Google account can).
 Type one or more Google addresses and click **Add**, then send them the link.
 Or just send someone the link first: after they try to sign in they appear
 under **Tried to sign in, not on the list** with an **Add** button.
@@ -198,7 +198,7 @@ with.
 
 | Task | Command (Lightsail SSH) |
 |---|---|
-| Listeners | https://wakeradio.joezambon.com/users |
+| Listeners | https://wakeradio.joezambon.com/users.html |
 | Update the server | paste the new `install.sh` as in setup step 2.8, then `sudo /opt/wakeradio/setup.sh` |
 | Status | `cd /opt/wakeradio && sudo docker compose ps` |
 | Logs | `sudo docker compose -f /opt/wakeradio/docker-compose.yml logs --tail 50` |
@@ -251,6 +251,7 @@ plus their license key.
 | Page loads but no sound | Click the page once, press **LIVE FEED**, and check **SELECT TG** has talkgroups on. |
 | Audio cuts out several times a second | You're on an SDRTrunk nightly; use 0.6.1 (see step 5). |
 | `/users` says "Admin only" | You're signed in with a different Google account than the admin one in `.env`. |
+| `/users` shows the scanner instead | Use `/users.html`. The scanner's offline cache (service worker) answers extension-less addresses itself. |
 
 ## Changing the server files
 
