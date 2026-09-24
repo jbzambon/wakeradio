@@ -3,8 +3,11 @@
 #
 #   sudo /opt/wakeradio/setup.sh
 #
-# Asks for the Google sign-in credentials, writes .env, starts the three
+# Asks for the Google sign-in credentials, writes .env, starts the
 # containers, configures Rdio Scanner, and prints what SDRTrunk needs.
+#
+# Once configured, re-running it only applies updates (no questions).
+#   sudo /opt/wakeradio/setup.sh --reconfigure   to change the answers
 set -euo pipefail
 
 DIR=/opt/wakeradio
@@ -29,6 +32,13 @@ ask() {  # ask VAR "Prompt" default [secret]
 
 DOMAIN=${DOMAIN:-}; ADMIN_EMAIL=${ADMIN_EMAIL:-}
 GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}; GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+
+# Already configured? Reuse the saved answers unless asked to reconfigure.
+if [[ ${1:-} != --reconfigure ]]; then
+	for v in DOMAIN ADMIN_EMAIL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
+		[[ -n ${!v} ]] || printf -v "$v" '%s' "$(get "$v")"
+	done
+fi
 
 cur=$(get DOMAIN); ask DOMAIN "Site address" "${cur:-wakeradio.joezambon.com}"
 cur=$(get ADMIN_EMAIL); ask ADMIN_EMAIL "Your Google account (the admin)" "${cur:-joseph.zambon@gmail.com}"
@@ -61,10 +71,12 @@ EOF
 [[ -n $RDIO_UPLOAD_KEY ]] && echo "RDIO_UPLOAD_KEY=$RDIO_UPLOAD_KEY" >>"$ENV_FILE"
 umask 022
 
-mkdir -p auth data/rdio data/caddy data/caddy-config
+mkdir -p auth logs data/rdio data/caddy data/caddy-config
 touch "$EMAILS"
 grep -qxF "$ADMIN_EMAIL" "$EMAILS" || echo "$ADMIN_EMAIL" >>"$EMAILS"
 chmod 644 "$EMAILS"
+# oauth2-proxy and the /users page run as uid 65532; Rdio as 1000.
+chown -R 65532:65532 auth logs
 chown -R 1000:1000 data/rdio
 
 # Let's Encrypt fails if DNS doesn't point here yet, so check first.
@@ -79,7 +91,7 @@ if [[ -n $MY_IP && $MY_IP != "$DNS_IP" ]]; then
 fi
 
 docker compose pull -q
-docker compose up -d
+docker compose up -d --remove-orphans
 python3 "$DIR/rdio-admin.py" bootstrap
 
 KEY=$(get RDIO_UPLOAD_KEY)
@@ -94,7 +106,7 @@ cat <<EOF
    API Key  $KEY
    System   1
 
- Manage listeners:  sudo /opt/wakeradio/users.sh add someone@gmail.com
+ Manage listeners:  https://$DOMAIN/users
  Rdio admin page:   https://$DOMAIN/admin
    password:        sudo grep RDIO_ADMIN_PASSWORD /opt/wakeradio/.env
 ==================================================================

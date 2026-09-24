@@ -7,6 +7,9 @@
 
 {
 	email {$ACME_EMAIL}
+	# Admin API on the private admin network only (used by the /users page to
+	# drop a removed listener's live feed). Never published to the internet.
+	admin {$CADDY_ADMIN_LISTEN:localhost:2019}
 }
 
 {$SITE_ADDRESS} {
@@ -61,12 +64,15 @@
 				}
 			}
 
-			# The Rdio admin pages are further limited to the owner's Google account.
+			# The Rdio admin pages and the listener page are limited to the owner's Google account.
 			@notadmin {
-				path /admin /admin/* /api/admin/*
+				path /admin /admin/* /api/admin/* /users /users/*
 				not header X-Auth-Request-Email {$ADMIN_EMAIL}
 			}
 			respond @notadmin "Admin only" 403
+
+			@users path /users /users/*
+			reverse_proxy @users users-admin:8080
 
 			reverse_proxy rdio-scanner:3000
 		}

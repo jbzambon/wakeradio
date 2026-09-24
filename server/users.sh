@@ -5,6 +5,8 @@
 #   sudo /opt/wakeradio/users.sh add someone@gmail.com [another@gmail.com ...]
 #   sudo /opt/wakeradio/users.sh remove someone@gmail.com
 #   sudo /opt/wakeradio/users.sh log        # recent sign-ins
+#
+# The same thing is available in a browser at https://<your site>/users
 set -euo pipefail
 
 DIR=/opt/wakeradio
@@ -28,7 +30,7 @@ add)
 		if grep -qxF "$e" "$EMAILS"; then echo "$e is already allowed"
 		else echo "$e" >>"$EMAILS"; echo "Added $e"; fi
 	done
-	docker compose restart oauth2-proxy >/dev/null
+	# oauth2-proxy notices the change by itself.
 	echo "They can sign in now at https://$(grep -E '^DOMAIN=' .env | cut -d= -f2-)"
 	;;
 remove)
@@ -45,12 +47,15 @@ remove)
 			echo "$e was not on the list"
 		fi
 	done
-	# Blocks their next page load; restarting Rdio also drops any live feed they have open.
-	docker compose restart oauth2-proxy rdio-scanner >/dev/null
+	# oauth2-proxy blocks their next request by itself; a forced Caddy reload
+	# also drops any live feed they have open (allowed listeners reconnect).
+	docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile \
+		--adapter caddyfile --force --address 172.29.0.2:2019 >/dev/null 2>&1 ||
+		docker compose restart rdio-scanner >/dev/null
 	echo "Done. Anyone removed is cut off now."
 	;;
 log)
-	docker compose logs --since 168h oauth2-proxy 2>/dev/null |
+	cat "$DIR"/logs/oauth2-proxy*.log 2>/dev/null |
 		grep -E 'AuthSuccess|AuthFailure' | tail -40
 	;;
 *)

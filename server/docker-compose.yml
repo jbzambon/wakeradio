@@ -15,6 +15,11 @@ networks:
     ipam:
       config:
         - subnet: 172.28.0.0/24
+  # Private link between Caddy and the /users page (and Caddy's admin API).
+  adm:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/29
 
 services:
   caddy:
@@ -30,17 +35,22 @@ services:
       DOMAIN: ${DOMAIN}
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ACME_EMAIL: ${ADMIN_EMAIL}
+      CADDY_ADMIN_LISTEN: 172.29.0.2:2019
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy:/data
       - ./data/caddy-config:/config
-    networks: [web]
-    depends_on: [oauth2-proxy, rdio-scanner]
+    networks:
+      web: {}
+      adm:
+        ipv4_address: 172.29.0.2
+    depends_on: [oauth2-proxy, rdio-scanner, users-admin]
 
   oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
     restart: unless-stopped
     logging: *logging
+    user: "65532:65532"
     environment:
       OAUTH2_PROXY_PROVIDER: google
       OAUTH2_PROXY_CLIENT_ID: ${GOOGLE_CLIENT_ID}
@@ -58,9 +68,16 @@ services:
       OAUTH2_PROXY_UPSTREAMS: static://202
       OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
       OAUTH2_PROXY_APPROVAL_PROMPT: auto
+      # Sign-in log to a file the /users page can read; per-request lines off.
+      OAUTH2_PROXY_LOGGING_FILENAME: /var/log/oauth2-proxy/oauth2-proxy.log
+      OAUTH2_PROXY_LOGGING_MAX_SIZE: "5"
+      OAUTH2_PROXY_LOGGING_MAX_BACKUPS: "1"
+      OAUTH2_PROXY_LOGGING_MAX_AGE: "30"
+      OAUTH2_PROXY_REQUEST_LOGGING: "false"
     volumes:
       # Whole folder, so edits to the list are picked up without a restart.
       - ./auth:/etc/oauth2-proxy:ro
+      - ./logs:/var/log/oauth2-proxy
     networks: [web]
 
   rdio-scanner:
@@ -78,3 +95,25 @@ services:
     volumes:
       - ./data/rdio:/app/data
     networks: [web]
+
+  users-admin:
+    # The /users listener page (server/users-admin/app.py, Python stdlib only).
+    image: python:3.12-alpine
+    restart: unless-stopped
+    logging: *logging
+    user: "65532:65532"
+    read_only: true
+    command: ["python3", "-u", "/app/app.py"]
+    environment:
+      DOMAIN: ${DOMAIN}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      CADDY_ADMIN: http://172.29.0.2:2019
+      EMAILS_FILE: /data/auth/allowed-emails.txt
+      LOG_DIR: /data/logs
+    volumes:
+      - ./users-admin/app.py:/app/app.py:ro
+      - ./auth:/data/auth
+      - ./logs:/data/logs:ro
+    networks:
+      adm:
+        ipv4_address: 172.29.0.3   # fixed, so it can never take Caddy's address

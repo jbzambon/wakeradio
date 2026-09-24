@@ -5,3 +5,4 @@ server/auth/
 server/data/
 *.bak-*
 __pycache__/
+server/logs/
