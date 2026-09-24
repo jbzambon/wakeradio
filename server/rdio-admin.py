@@ -20,6 +20,18 @@ published on the loopback interface, never to the internet.
                             strip a leading UID number from unit labels that
                             already exist (e.g. "1838270 GFL1 Driver" ->
                             "GFL1 Driver").
+  rdio-admin.py list-talkgroups [--system N]
+                            list talkgroups (id, group, label) so you can see
+                            what to bundle.
+  rdio-admin.py set-group "LABEL" [--match TEXT]... [TGID]... [--system N] [--dry-run]
+                            put talkgroups into a group you can toggle on/off
+                            in the player's SELECT TG panel. Pick talkgroups by
+                            id and/or by --match (case-insensitive substring of
+                            the label). Creates the group if it doesn't exist.
+                            Example:
+                              set-group "Fire Pre-Alert" --match "Cary FD Disp" \
+                                --match "WC FD Disp" --match "WC FD Alert" \
+                                --match "RFD HQ Disp" --match "RFD Alert"
 
 Secrets live in /opt/wakeradio/.env (root-only).
 """
@@ -329,13 +341,120 @@ def clean_units(rest):
     print(f"Cleaned {changed} unit labels.")
 
 
+def _group_label(cfg, gid):
+    for g in cfg.get("groups", []):
+        if g.get("_id") == gid:
+            return g.get("label")
+    return None
+
+
+def list_talkgroups(rest):
+    _, system_id, _ = _args(rest)
+    token, _ = get_token()
+    cfg = get_config(token)
+    system = _pick_system(cfg, system_id)
+    tgs = sorted(system.get("talkgroups", []), key=lambda t: t.get("id", 0))
+    if not tgs:
+        print("No talkgroups yet. Let SDRTrunk upload some calls first.")
+        return
+    print(f"system {system_id} ({system.get('label')}): {len(tgs)} talkgroups")
+    print(f"  {'TGID':>7}  {'group':<16} label")
+    for t in tgs:
+        g = _group_label(cfg, t.get("groupId")) or "-"
+        print(f"  {t.get('id'):>7}  {g:<16} {t.get('label')}")
+
+
+def set_group(rest):
+    # First non-flag arg is the group label; remaining digit args are TGIDs.
+    label = None
+    tgids = set()
+    matches = []
+    system_id, dry = "1", False
+    i = 0
+    while i < len(rest):
+        a = rest[i]
+        if a == "--system" and i + 1 < len(rest):
+            system_id = rest[i + 1]; i += 2; continue
+        if a == "--match" and i + 1 < len(rest):
+            matches.append(rest[i + 1].lower()); i += 2; continue
+        if a == "--dry-run":
+            dry = True; i += 1; continue
+        if label is None:
+            label = a
+        elif a.isdigit():
+            tgids.add(int(a))
+        else:
+            sys.exit(f"Unexpected argument {a!r}. TGIDs must be numbers; "
+                     f"use --match for names.")
+        i += 1
+
+    if not label:
+        sys.exit('Usage: rdio-admin.py set-group "LABEL" [--match TEXT]... [TGID]...')
+    if not tgids and not matches:
+        sys.exit("Give at least one TGID or --match to choose talkgroups.")
+
+    token, _ = get_token()
+    cfg = get_config(token)
+    system = _pick_system(cfg, system_id)
+    tgs = system.get("talkgroups", [])
+
+    # Resolve which talkgroups to move.
+    chosen = {}
+    for t in tgs:
+        tid = t.get("id")
+        lab = (t.get("label") or "").lower()
+        if tid in tgids or any(m in lab for m in matches):
+            chosen[tid] = t
+    missing = tgids - set(chosen)
+    if missing:
+        print("Warning: no talkgroup with id " +
+              ", ".join(str(m) for m in sorted(missing)))
+    unmatched = [m for m in matches
+                 if not any(m in (t.get("label") or "").lower() for t in tgs)]
+    if unmatched:
+        print("Warning: --match found nothing for: " +
+              ", ".join(repr(m) for m in unmatched))
+    if not chosen:
+        sys.exit("Nothing matched. Try: rdio-admin.py list-talkgroups")
+
+    # Find or create the group.
+    groups = cfg.setdefault("groups", [])
+    grp = next((g for g in groups if (g.get("label") or "").lower() == label.lower()), None)
+    if grp is None:
+        new_id = max((g.get("_id", 0) for g in groups), default=0) + 1
+        grp = {"_id": new_id, "label": label}
+        groups.append(grp)
+        print(f"Creating group {new_id} \"{label}\".")
+    gid = grp["_id"]
+
+    print(f"Putting {len(chosen)} talkgroups into \"{label}\":")
+    changed = 0
+    for tid, t in sorted(chosen.items()):
+        was = _group_label(cfg, t.get("groupId")) or "-"
+        if t.get("groupId") != gid:
+            changed += 1
+        print(f"  {tid:>7}  {t.get('label')}   ({was} -> {label})")
+        t["groupId"] = gid
+
+    if dry:
+        print("(dry run: nothing saved)")
+        return
+    put_config(token, cfg)
+    print(f"Saved. In the player, open SELECT TG and toggle \"{label}\". "
+          f"Your choice is remembered per browser.")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     rest = sys.argv[2:]
-    if cmd == "import-units":
-        import_units(rest)
-    elif cmd == "clean-units":
-        clean_units(rest)
+    dispatch = {
+        "import-units": import_units,
+        "clean-units": clean_units,
+        "list-talkgroups": list_talkgroups,
+        "set-group": set_group,
+    }
+    if cmd in dispatch:
+        dispatch[cmd](rest)
     else:
         {"bootstrap": bootstrap, "show-key": show_key, "new-key": new_key}.get(
             cmd, lambda: sys.exit(__doc__))()
