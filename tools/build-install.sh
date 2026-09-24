@@ -47,11 +47,11 @@ fi
 mkdir -p /opt/wakeradio
 cd /opt/wakeradio
 base64 -d > /tmp/wakeradio.txz <<'BUNDLE'
-\$bundle
+$bundle
 BUNDLE
 tar -xJf /tmp/wakeradio.txz --no-same-owner && rm -f /tmp/wakeradio.txz
 sha256sum -c <<'SUMS'
-\$sums
+$sums
 SUMS
 
 chmod 755 setup.sh users.sh rdio-admin.py; chmod 644 users-admin/app.py alias-learner/app.py
