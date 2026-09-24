@@ -14,12 +14,14 @@
 
 {$SITE_ADDRESS} {
 	# Calls from SDRTrunk (and trunk-recorder, if ever used). API key checked by Rdio.
+	# Goes through alias-learner, which forwards each call to Rdio unchanged and
+	# learns radios' P25 talker aliases into Rdio's unit labels along the way.
 	@upload path /api/call-upload /api/trunk-recorder-call-upload
 	handle @upload {
 		request_body {
 			max_size 25MB
 		}
-		reverse_proxy rdio-scanner:3000
+		reverse_proxy alias-learner:8090
 	}
 
 	# Public privacy page (Google requires a privacy policy link to publish the sign-in app).

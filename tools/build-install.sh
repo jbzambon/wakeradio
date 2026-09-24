@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-files=(docker-compose.yml Caddyfile setup.sh users.sh rdio-admin.py users-admin/app.py)
+files=(docker-compose.yml Caddyfile setup.sh users.sh rdio-admin.py users-admin/app.py alias-learner/app.py)
 bundle=$(tar -C server --owner=0 --group=0 --mtime='2026-01-01' --sort=name \
 	-cf - "${files[@]}" | xz -9e | base64 -w 76)
 sums=$(cd server && sha256sum "${files[@]}")
@@ -47,14 +47,14 @@ fi
 mkdir -p /opt/wakeradio
 cd /opt/wakeradio
 base64 -d > /tmp/wakeradio.txz <<'BUNDLE'
-$bundle
+\$bundle
 BUNDLE
 tar -xJf /tmp/wakeradio.txz --no-same-owner && rm -f /tmp/wakeradio.txz
 sha256sum -c <<'SUMS'
-$sums
+\$sums
 SUMS
 
-chmod 755 setup.sh users.sh rdio-admin.py; chmod 644 users-admin/app.py
+chmod 755 setup.sh users.sh rdio-admin.py; chmod 644 users-admin/app.py alias-learner/app.py
 ln -sf /opt/wakeradio/users.sh /usr/local/bin/wakeradio-users
 docker compose pull -q || true   # warm the image cache; setup.sh starts everything
 echo "Wake Radio files installed. Next: sudo /opt/wakeradio/setup.sh"

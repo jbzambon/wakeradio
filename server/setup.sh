@@ -71,12 +71,12 @@ EOF
 [[ -n $RDIO_UPLOAD_KEY ]] && echo "RDIO_UPLOAD_KEY=$RDIO_UPLOAD_KEY" >>"$ENV_FILE"
 umask 022
 
-mkdir -p auth logs data/rdio data/caddy data/caddy-config
+mkdir -p auth logs data/rdio data/caddy data/caddy-config data/alias-learner
 touch "$EMAILS"
 grep -qxF "$ADMIN_EMAIL" "$EMAILS" || echo "$ADMIN_EMAIL" >>"$EMAILS"
 chmod 644 "$EMAILS"
-# oauth2-proxy and the /users page run as uid 65532; Rdio as 1000.
-chown -R 65532:65532 auth logs
+# oauth2-proxy, the /users page, and the alias-learner run as uid 65532; Rdio as 1000.
+chown -R 65532:65532 auth logs data/alias-learner
 chown -R 1000:1000 data/rdio
 
 # Let's Encrypt fails if DNS doesn't point here yet, so check first.
@@ -97,7 +97,7 @@ docker compose up -d --remove-orphans
 # and a single-file mount keeps showing the old copy (even across a restart)
 # once the installer replaces the file. Recreate the container whose file
 # changed since the last run so it mounts the new one.
-for pair in caddy:Caddyfile users-admin:users-admin/app.py; do
+for pair in caddy:Caddyfile users-admin:users-admin/app.py alias-learner:alias-learner/app.py; do
 	svc=${pair%%:*}; file=${pair#*:}
 	stamp="data/.applied-$svc.sha256"
 	sum=$(sha256sum "$file" | cut -d' ' -f1)
@@ -109,6 +109,10 @@ for pair in caddy:Caddyfile users-admin:users-admin/app.py; do
 done
 
 python3 "$DIR/rdio-admin.py" bootstrap
+
+# The alias-learner needs the Rdio admin password, which bootstrap writes to
+# .env on first run. Recreate it so it picks the password up (no-op afterward).
+docker compose up -d alias-learner >/dev/null 2>&1 || true
 
 KEY=$(get RDIO_UPLOAD_KEY)
 cat <<EOF
