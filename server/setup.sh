@@ -106,7 +106,7 @@ cat <<EOF
    API Key  $KEY
    System   1
 
- Manage listeners:  https://$DOMAIN/users
+ Manage listeners:  https://$DOMAIN/users.html
  Rdio admin page:   https://$DOMAIN/admin
    password:        sudo grep RDIO_ADMIN_PASSWORD /opt/wakeradio/.env
 ==================================================================

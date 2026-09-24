@@ -6,7 +6,7 @@
 #   sudo /opt/wakeradio/users.sh remove someone@gmail.com
 #   sudo /opt/wakeradio/users.sh log        # recent sign-ins
 #
-# The same thing is available in a browser at https://<your site>/users
+# The same thing is available in a browser at https://<your site>/users.html
 set -euo pipefail
 
 DIR=/opt/wakeradio

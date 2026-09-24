@@ -66,12 +66,12 @@
 
 			# The Rdio admin pages and the listener page are limited to the owner's Google account.
 			@notadmin {
-				path /admin /admin/* /api/admin/* /users /users/*
+				path /admin /admin/* /api/admin/* /users /users.html /users/*
 				not header X-Auth-Request-Email {$ADMIN_EMAIL}
 			}
 			respond @notadmin "Admin only" 403
 
-			@users path /users /users/*
+			@users path /users /users.html /users/*
 			reverse_proxy @users users-admin:8080
 
 			reverse_proxy rdio-scanner:3000

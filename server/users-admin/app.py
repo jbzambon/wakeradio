@@ -1,4 +1,9 @@
-"""Wake Radio listener admin page, served at /users.
+"""Wake Radio listener admin page, served at /users.html.
+
+(Not /users: Rdio Scanner's web app installs an Angular service worker that
+answers every extension-less page request from its cache, so /users never
+reaches the server in a browser that has opened the scanner. Paths with a
+file extension are left alone by that service worker.)
 
 Caddy only lets the admin's Google account reach this service, so it
 trusts the X-Auth-Request-Email header Caddy sets, and checks it anyway.
@@ -251,14 +256,19 @@ class Handler(BaseHTTPRequestHandler):
     def redirect(self, msg, ok=True):
         q = urllib.parse.urlencode({"msg": msg, "ok": "1" if ok else "0"})
         self.send_response(303)
-        self.send_header("Location", "/users?" + q)
+        self.send_header("Location", "/users.html?" + q)
         self.end_headers()
 
     def do_GET(self):
         if self.viewer() != ADMIN:
             return self.deny()
         u = urllib.parse.urlparse(self.path)
-        if u.path.rstrip("/") != "/users":
+        if u.path.rstrip("/") == "/users":  # reached only without the service worker
+            self.send_response(301)
+            self.send_header("Location", "/users.html")
+            self.end_headers()
+            return
+        if u.path != "/users.html":
             self.send_response(404)
             self.end_headers()
             return
