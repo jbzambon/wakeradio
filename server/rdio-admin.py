@@ -9,18 +9,31 @@ published on the loopback interface, never to the internet.
                             apply the options below. Safe to re-run.
   rdio-admin.py show-key    print the SDRTrunk upload key
   rdio-admin.py new-key     replace the upload key (then update SDRTrunk)
+  rdio-admin.py import-units PLAYLIST.xml [--system N] [--dry-run]
+                            name radios from an SDRTrunk playlist: each radio
+                            alias becomes a unit label (so calls show
+                            "GFL1 Driver" instead of a bare UID number). The
+                            leading UID digits SDRTrunk shows are stripped, so
+                            only the meaningful name is used. Re-run any time
+                            to pick up new aliases.
+  rdio-admin.py clean-units [--system N] [--dry-run]
+                            strip a leading UID number from unit labels that
+                            already exist (e.g. "1838270 GFL1 Driver" ->
+                            "GFL1 Driver").
 
 Secrets live in /opt/wakeradio/.env (root-only).
 """
 
 import json
 import os
+import re
 import secrets
 import sys
 import time
 import urllib.error
 import urllib.request
 import uuid
+import xml.etree.ElementTree as ET
 
 BASE = os.environ.get("RDIO_URL", "http://127.0.0.1:3000")
 ENV_FILE = os.environ.get("WAKERADIO_ENV", "/opt/wakeradio/.env")
@@ -196,7 +209,133 @@ def new_key():
     print(key)
 
 
+# A leading UID number that SDRTrunk (or an imported list) glued onto the front
+# of a name: "1838270 GFL1 Driver" or "01838270 - GFL1 Driver" -> "GFL1 Driver".
+# Only strips when real text follows, so a name that is only a number is left be.
+_LEADING_NUM = re.compile(r"^\s*\d+\s*[-:_.]?\s+(?=\S)")
+
+
+def clean_label(name):
+    return _LEADING_NUM.sub("", (name or "").strip()).strip()
+
+
+def radios_from_playlist(path):
+    """Return {uid_int: label} for every radio alias in an SDRTrunk playlist."""
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError) as e:
+        sys.exit(f"Could not read playlist {path}: {e}")
+    units = {}
+    for alias in root.iter("alias"):
+        name = clean_label(alias.get("name", ""))
+        if not name:
+            continue
+        for ident in alias.findall("id"):
+            if (ident.get("type") or "").lower() == "radio":
+                val = ident.get("value")
+                if val and val.isdigit():
+                    units[int(val)] = name
+    return units
+
+
+def _pick_system(cfg, system_id):
+    systems = cfg.get("systems", [])
+    if not systems:
+        sys.exit("No systems in Rdio yet. Let SDRTrunk upload a few calls first.")
+    for s in systems:
+        if str(s.get("id")) == str(system_id):
+            return s
+    ids = ", ".join(str(s.get("id")) for s in systems)
+    sys.exit(f"No system with id {system_id}. Systems present: {ids}. "
+             f"Pass --system N.")
+
+
+def _args(rest):
+    system_id, dry = "1", False
+    i = 0
+    extra = None
+    while i < len(rest):
+        a = rest[i]
+        if a == "--system" and i + 1 < len(rest):
+            system_id = rest[i + 1]; i += 2; continue
+        if a == "--dry-run":
+            dry = True; i += 1; continue
+        extra = a; i += 1
+    return extra, system_id, dry
+
+
+def import_units(rest):
+    path, system_id, dry = _args(rest)
+    if not path:
+        sys.exit("Usage: rdio-admin.py import-units PLAYLIST.xml [--system N] [--dry-run]")
+    wanted = radios_from_playlist(path)
+    if not wanted:
+        sys.exit(f"No radio aliases found in {path}. (Aliases need an "
+                 f"<id type=\"radio\" value=\"...\"/> entry.)")
+    token, _ = get_token()
+    cfg = get_config(token)
+    system = _pick_system(cfg, system_id)
+    units = system.setdefault("units", [])
+    by_id = {u.get("id"): u for u in units}
+
+    added = changed = 0
+    for uid, label in sorted(wanted.items()):
+        u = by_id.get(uid)
+        if u is None:
+            units.append({"id": uid, "label": label})
+            added += 1
+        elif u.get("label") != label:
+            u["label"] = label
+            changed += 1
+
+    print(f"system {system_id} ({system.get('label')}): "
+          f"{len(wanted)} radio aliases in playlist -> "
+          f"{added} new, {changed} relabeled, "
+          f"{len(wanted) - added - changed} already current.")
+    for uid, label in list(sorted(wanted.items()))[:5]:
+        print(f"  {uid} -> {label}")
+    if len(wanted) > 5:
+        print(f"  ... and {len(wanted) - 5} more")
+    if dry:
+        print("(dry run: nothing saved)")
+        return
+    if added or changed:
+        put_config(token, cfg)
+        print("Saved. New calls will show these names; past calls update too.")
+    else:
+        print("Nothing to change.")
+
+
+def clean_units(rest):
+    _, system_id, dry = _args(rest)
+    token, _ = get_token()
+    cfg = get_config(token)
+    system = _pick_system(cfg, system_id)
+    units = system.get("units", [])
+    changed = 0
+    for u in units:
+        new = clean_label(u.get("label"))
+        if new and new != u.get("label"):
+            print(f"  {u.get('id')}: {u.get('label')!r} -> {new!r}")
+            u["label"] = new
+            changed += 1
+    if not changed:
+        print(f"system {system_id}: no unit labels needed cleaning.")
+        return
+    if dry:
+        print(f"(dry run: {changed} would change, nothing saved)")
+        return
+    put_config(token, cfg)
+    print(f"Cleaned {changed} unit labels.")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    {"bootstrap": bootstrap, "show-key": show_key, "new-key": new_key}.get(
-        cmd, lambda: sys.exit(__doc__))()
+    rest = sys.argv[2:]
+    if cmd == "import-units":
+        import_units(rest)
+    elif cmd == "clean-units":
+        clean_units(rest)
+    else:
+        {"bootstrap": bootstrap, "show-key": show_key, "new-key": new_key}.get(
+            cmd, lambda: sys.exit(__doc__))()
