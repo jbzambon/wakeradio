@@ -74,6 +74,15 @@
 			@users path /users /users.html /users/*
 			reverse_proxy @users users-admin:8080
 
+			# Retire Rdio's offline cache (Angular service worker). It answers
+			# addresses like /users from the browser's copy of the scanner, so the
+			# server never sees them. Browsers that have it fetch this script,
+			# get Angular's own safety worker, and it removes itself and its cache.
+			# Nothing is lost: the scanner needs the network to play anything.
+			@sw path /ngsw-worker.js
+			header @sw Cache-Control "no-cache"
+			rewrite @sw /safety-worker.js
+
 			reverse_proxy rdio-scanner:3000
 		}
 	}
