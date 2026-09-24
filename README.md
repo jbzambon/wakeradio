@@ -13,6 +13,7 @@ accounts on the allowlist get in.
  ┌─────────── Lightsail (Ubuntu 24.04, Docker) ────────────┐
  │  Caddy :443  (Let's Encrypt HTTPS)                        │
  │    ├─ /api/call-upload ─────────────► Rdio Scanner 6.6.3  │
+ │    ├─ /users (admin only) ─► listener page (allowlist)     │
  │    └─ everything else ─► oauth2-proxy ─► Rdio Scanner     │
  │                          (Google sign-in + allowlist)     │
  └───────────────────────────────────────────────────────────┘
@@ -27,14 +28,15 @@ forwarding and nothing at home is exposed.
 
 | Path | What it is |
 |---|---|
-| `lightsail-launch-script.sh` | Paste into Lightsail when creating the instance. Installs Docker and puts the server files in `/opt/wakeradio`. No secrets. |
-| `server/docker-compose.yml` | The three containers: Caddy, oauth2-proxy, Rdio Scanner. |
+| `install.sh` | Paste into the Lightsail SSH window to install or update. Installs Docker and puts the server files in `/opt/wakeradio`. Never touches your settings, allowlist or recordings. No secrets. |
+| `server/docker-compose.yml` | The four containers: Caddy, oauth2-proxy, Rdio Scanner, and the `/users` page. |
 | `server/Caddyfile` | HTTPS, Google sign-in on every page, upload endpoint left to Rdio's API key, `/admin` limited to your account. |
 | `server/setup.sh` | Run once on the server. Asks for the Google credentials, starts everything, configures Rdio, prints the SDRTrunk settings. Safe to re-run. |
-| `server/users.sh` | Add, remove and list who can sign in. |
+| `server/users-admin/app.py` | The `/users` page: add and remove listeners, see who tried to sign in. Only your Google account can open it. |
+| `server/users.sh` | The same from the command line. |
 | `server/rdio-admin.py` | Configures Rdio Scanner through its local admin API (called by setup.sh). |
 | `windows/Add-RdioStreamToAliases.ps1` | Tags every talkgroup alias in your SDRTrunk playlist with the stream, instead of 326 clicks. |
-| `tools/` | `build-launch-script.sh` regenerates the launch script after editing `server/`. `fake-sdrtrunk-upload.py` sends a call exactly like SDRTrunk does, for testing. |
+| `tools/` | `build-install.sh` regenerates `install.sh` after editing `server/`. `fake-sdrtrunk-upload.py` sends a call exactly like SDRTrunk does, for testing. |
 
 ---
 
@@ -74,18 +76,22 @@ address.
 1. Go to <https://lightsail.aws.amazon.com/> → **Create instance**.
 2. Region: **Virginia (us-east-1)**, any zone.
 3. Platform **Linux/Unix** → **Operating system (OS) only** → **Ubuntu 24.04 LTS**.
-4. **+ Add launch script**. Open `lightsail-launch-script.sh` from this repo (on GitHub, the **Raw** button, then select all and copy) and paste the whole thing into the box.
+4. Skip the launch script box (the installer is too big for it; you'll paste it in step 8).
 5. Plan: **General purpose, $7/month (1 GB RAM, 2 vCPUs, 40 GB SSD)**, with the public IPv4 option. The $5 plan (512 MB) would probably run it, but 1 GB leaves headroom.
 6. Name it `wakeradio` → **Create instance**.
 7. When it shows **Running**, open it and go to the **Networking** tab:
    - **Attach static IP** → create one named `wakeradio-ip` and attach it. Write the address down. (Free while attached to a running instance.)
    - Under **IPv4 Firewall** → **Add rule** → Application **HTTPS** (TCP 443) → **Create**. HTTP (80) should already be there; keep it, since Let's Encrypt uses it to issue the certificate.
    - Optional: edit the **SSH** rule → **Restrict to IP address** → your home IP, and keep **Allow Lightsail browser SSH/RDP** checked so the browser button still works.
-8. Give the launch script about 3 minutes to finish. To check, go to the **Connect** tab → **Connect using SSH**, and run:
+8. **Connect** tab → **Connect using SSH**, then install:
    ```
-   tail -3 /var/log/wakeradio-launch.log
+   cat > install.sh
    ```
-   The last line should say `Wake Radio files installed`.
+   Open `install.sh` in this repo on GitHub → **Raw** → select all → copy, and paste into the SSH window (the clipboard icon at the bottom right if Ctrl+V doesn't work). Press **Enter**, then **Ctrl+D**. Then:
+   ```
+   sudo sh install.sh
+   ```
+   It takes about 3 minutes and ends with six `: OK` lines and `Wake Radio files installed`.
 
 ### 3. GoDaddy DNS (about 2 minutes, then a short wait)
 
@@ -106,7 +112,8 @@ sudo /opt/wakeradio/setup.sh
 ```
 
 Press Enter to accept the site address and your Google account, then paste
-the Client ID and Client secret from step 1 (the secret doesn't echo). It
+the Client ID and Client secret from step 1 (the secret doesn't echo). On
+later runs it remembers these and asks nothing (`--reconfigure` to change them). It
 starts the containers, replaces Rdio Scanner's default admin password with a
 random one, creates the upload key, and ends with a box like this:
 
@@ -123,6 +130,13 @@ until calls arrive). If the browser says the certificate isn't valid, wait a
 minute and reload; Caddy gets it on the first visit after DNS is right.
 
 ### 5. SDRTrunk streaming (about 10 minutes)
+
+**Use SDRTrunk 0.6.1 (the stable release), not a nightly.** The 2026 nightly
+builds have a P25 Phase 1 decoder regression that drops almost every LDU1
+voice frame on this LSM simulcast system (`SYNC LOSS - BITS PROCESSED [1728]`
+between every LDU2 in the Messages tab), which sounds like audio cutting out
+several times a second. See sdrtrunk issues #2379 and #2465. 0.6.1 decodes it
+cleanly and reads the same playlist.
 
 1. In SDRTrunk: **View → Playlist Editor → Streaming** tab → **New** → **Rdio Scanner**.
 2. Fill in:
@@ -146,7 +160,17 @@ streaming section, check `wakeradio` → Save.
 
 ### 6. Add listeners
 
-In the Lightsail SSH window:
+Open **https://wakeradio.joezambon.com/users** (only your Google account can).
+Type one or more Google addresses and click **Add**, then send them the link.
+Or just send someone the link first: after they try to sign in they appear
+under **Tried to sign in, not on the list** with an **Add** button.
+
+**Remove** cuts a listener off immediately, including a live feed they have
+open (everyone else's feed reconnects by itself within a second or two).
+Sign-ins last 30 days before Google asks again. There's no practical limit on
+the number of listeners.
+
+The same from the SSH window, if you prefer:
 
 ```
 sudo wakeradio-users add friend@gmail.com another@gmail.com
@@ -155,9 +179,7 @@ sudo wakeradio-users remove friend@gmail.com
 sudo wakeradio-users log          # recent sign-ins and refusals
 ```
 
-Send them the link. Anyone not on the list gets Google's sign-in and then a
-"403 Forbidden" page. Removing someone cuts them off immediately, including
-a live feed they have open. Sign-ins last 30 days before Google asks again.
+Anyone not on the list gets Google's sign-in and then a "403 Forbidden" page.
 
 Any Google account works, including Google Workspace accounts and Google
 accounts made with a non-Gmail address. Use the exact address they sign in
@@ -176,6 +198,8 @@ with.
 
 | Task | Command (Lightsail SSH) |
 |---|---|
+| Listeners | https://wakeradio.joezambon.com/users |
+| Update the server | paste the new `install.sh` as in setup step 2.8, then `sudo /opt/wakeradio/setup.sh` |
 | Status | `cd /opt/wakeradio && sudo docker compose ps` |
 | Logs | `sudo docker compose -f /opt/wakeradio/docker-compose.yml logs --tail 50` |
 | Restart everything | `cd /opt/wakeradio && sudo docker compose restart` |
@@ -194,7 +218,8 @@ with.
 
 - Every page, the live feed and the call search require a signed-in Google account on the allowlist. That check happens in oauth2-proxy before anything reaches Rdio Scanner.
 - The only unauthenticated paths are `/api/call-upload`, which Rdio accepts only with the upload key (uploads with a wrong key are refused), and `/privacy`, a static page Caddy serves itself.
-- `/admin` requires your Google account **and** the Rdio admin password.
+- `/admin` requires your Google account **and** the Rdio admin password. `/users` requires your Google account, and its forms only accept requests that come from the site itself.
+- Caddy's admin API (used by `/users` to drop a removed listener's feed) listens only on a private Docker network shared with the `/users` page.
 - Rdio Scanner is only reachable through Caddy. Its own port is bound to the server's loopback address.
 - Secrets live in `/opt/wakeradio/.env` (root-only), never in this repo.
 
@@ -224,13 +249,14 @@ plus their license key.
 | SDRTrunk stream shows errors, nothing arrives | Check Host has `https://` and no trailing path, the API key matches `show-key`, and System ID is `1`. SDRTrunk's log (`SDRTrunk\logs\sdrtrunk_app.log`) shows Rdio's exact reply. |
 | Stream connected but Streamed count stays 0 | Aliases aren't assigned to the stream. Re-run the PowerShell script with SDRTrunk closed. |
 | Page loads but no sound | Click the page once, press **LIVE FEED**, and check **SELECT TG** has talkgroups on. |
-| Launch script didn't run | `sudo cat /var/log/wakeradio-launch.log`. You can re-run it: `sudo bash lightsail-launch-script.sh` from a copy of the file. |
+| Audio cuts out several times a second | You're on an SDRTrunk nightly; use 0.6.1 (see step 5). |
+| `/users` says "Admin only" | You're signed in with a different Google account than the admin one in `.env`. |
 
 ## Changing the server files
 
-Edit `server/`, run `tools/build-launch-script.sh`, commit both. On an
-existing server, copy the changed file into `/opt/wakeradio/` and run
-`sudo docker compose up -d` there.
+Edit `server/`, run `tools/build-install.sh`, commit both. To apply on the
+server, paste the new `install.sh` into the SSH window and run it, then
+`sudo /opt/wakeradio/setup.sh` (no questions on re-runs).
 
 Tested before first deploy (September 2026): the same versions of Caddy,
 oauth2-proxy and Rdio Scanner 6.6.3 run locally with this Caddyfile. Signed-out
@@ -238,4 +264,6 @@ requests redirect to Google, non-admins get 403 on `/admin` and the admin
 API even with a forged email header, the live-feed WebSocket upgrades for
 signed-in users, and an upload built byte-for-byte like SDRTrunk's is
 accepted (wrong key refused) and auto-creates the system and talkgroups.
-The Google round trip itself can only be tested once the real site is up.
+The `/users` page was tested the same way: non-admins and forged headers get
+403, cross-site form posts are refused, adds reach oauth2-proxy without a
+restart, and a removal closes that listener's open live feed at once.
